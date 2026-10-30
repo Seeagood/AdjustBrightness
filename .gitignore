@@ -16,6 +16,11 @@ debug.log
 *.tmp
 .tmp/
 
+# ---- 本地私密/凭据 (绝不入库) ----
+github_token/
+*.token
+token.txt
+
 # ---- 编辑器 / 工具 ----
 .vscode/
 .trae/
