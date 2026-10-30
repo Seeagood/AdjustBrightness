@@ -96,6 +96,8 @@ ISCC.exe installer\setup.iss
 - 安装时可勾选「开机自动启动」
 - 覆盖安装/卸载前会自动结束正在运行的实例
 
+> 仓库带了 `.github/workflows/release.yml`：推送 `v*` 标签（或手动 Run workflow）时，会在 GitHub 的 Windows runner 上自动编译 + 打包，并把 `AdjustBrightness.exe` 与 `AdjustBrightnessSetup.exe` 上传到对应 Release。
+
 ## 配置
 
 所有配置只落在**程序所在目录** 的 `config.ini`，不写 AppData、不写临时目录：

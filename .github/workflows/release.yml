@@ -1,0 +1,67 @@
+name: Release
+
+# 推 v* 标签时自动编译 + 打包 + 发布 Release; 也可在 Actions 页面手动触发
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要构建并发布的标签 (例如 v1.0.1)'
+        required: true
+        default: 'v1.0.1'
+
+permissions:
+  contents: write   # 仅用于创建 Release / 上传附件, 不涉及其它权限
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 编译 (MSVC x64, Release /MT)
+        shell: cmd
+        run: |
+          for /f "tokens=*" %%i in ('"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath') do set VSDIR=%%i
+          if not exist "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" (
+            echo [ERROR] vcvars64.bat not found under "%VSDIR%"
+            exit /b 1
+          )
+          call "%VSDIR%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          if not exist build mkdir build
+          rc /nologo /utf-8 /fo build\app.res res\app.rc || exit /b 1
+          cl /nologo /utf-8 /MT /O2 /GL /DNDEBUG /D_HAS_EXCEPTIONS=0 /GR- /EHs-c- /W3 /WX- ^
+             /Fobuild\ /Febuild\AdjustBrightness.exe ^
+             src\main.cpp src\mainwnd.cpp src\presetdlg.cpp src\brightness.cpp src\config.cpp ^
+             build\app.res ^
+             /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS /MANIFEST:NO ^
+             user32.lib gdi32.lib ole32.lib oleaut32.lib wbemuuid.lib shell32.lib advapi32.lib imm32.lib || exit /b 1
+
+      - name: 打包安装程序 (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc installer\setup.iss
+          if (-not (Test-Path 'installer\Output\AdjustBrightnessSetup.exe')) { throw "setup exe not produced" }
+
+      - name: 发布 Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if ([string]::IsNullOrWhiteSpace($tag)) { $tag = $env:GITHUB_REF_NAME }
+          $files = @('build\AdjustBrightness.exe', 'installer\Output\AdjustBrightnessSetup.exe')
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            # 已存在: 覆盖上传附件
+            gh release upload $tag @files --clobber
+          } else {
+            gh release create $tag @files --title $tag --generate-notes
+          }
+          "Release: https://github.com/$env:GITHUB_REPOSITORY/releases/tag/$tag"
