@@ -1,0 +1,15 @@
+# 统一换行: 仓库内用 LF, 检出时按平台自动转换
+* text=auto
+
+# C/C++ 源码保持 LF
+*.cpp text eol=lf
+*.h   text eol=lf
+
+# Windows 脚本 / 安装脚本保持 CRLF
+*.bat text eol=crlf
+*.iss text eol=crlf
+
+# 图标等二进制文件不做文本处理
+*.ico binary
+*.png binary
+*.jpg binary

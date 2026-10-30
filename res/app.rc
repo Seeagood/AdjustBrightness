@@ -1,0 +1,7 @@
+// app.rc - 图标 + 清单
+#include <windows.h>
+
+#define IDI_SUN 101
+IDI_SUN ICON "res\\sun.ico"
+
+1 RT_MANIFEST "res\\app.manifest"

@@ -1,0 +1,22 @@
+# ---- 构建产物 (不入库) ----
+build/
+installer/Output/
+tools/Output/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.res
+*.lib
+
+# ---- 运行时 / 临时 ----
+config.ini
+debug.log
+*.log
+*.tmp
+.tmp/
+
+# ---- 编辑器 / 工具 ----
+.vscode/
+.trae/
+.screenshots/
