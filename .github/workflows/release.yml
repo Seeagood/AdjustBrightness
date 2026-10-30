@@ -43,29 +43,22 @@ jobs:
       - name: 打包安装程序 (Inno Setup)
         shell: pwsh
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          if (-not (Test-Path $iscc)) {
-            # 优先官方静默安装包, 不依赖 Chocolatey
-            try {
-              Invoke-WebRequest -Uri 'https://jrsoftware.org/download.php/is.exe' -OutFile "$env:TEMP\innosetup.exe" -UseBasicParsing
-              $p = Start-Process "$env:TEMP\innosetup.exe" -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-' -Wait -PassThru
-              "innosetup installer exit=$($p.ExitCode)"
-            } catch {
-              "download/silent install failed: $($_.Exception.Message)"
-            }
-          }
-          if (-not (Test-Path $iscc)) { $iscc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe" }
-          if (-not (Test-Path $iscc)) {
-            "fallback: choco"
+          # windows-latest 自带 Inno Setup 6; 找不到时才用 choco 兜底
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) {
+            Write-Host "Inno Setup not found, installing via choco..."
             choco install innosetup --no-progress -y
-            $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+            $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           }
-          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
-          "using: $iscc"
-          & $iscc 'installer\setup.iss' 2>&1 | Tee-Object -Variable out
-          $out | ForEach-Object { Write-Host $_ }
+          if (-not $iscc) { throw "ISCC.exe not found" }
+          Write-Host "using: $iscc"
+          & $iscc 'installer\setup.iss' 2>&1 | ForEach-Object { Write-Host $_ }
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
-          Get-ChildItem 'installer\Output' | Format-Table Name,Length
+          Get-ChildItem 'installer\Output' | Format-Table Name,Length | Out-String | Write-Host
           if (-not (Test-Path 'installer\Output\AdjustBrightnessSetup.exe')) { throw "setup exe not produced" }
 
       - name: 发布 Release

@@ -31,7 +31,13 @@ UninstallDisplayIcon={app}\{#AppExe}
 SetupIconFile=..\res\sun.ico
 
 [Languages]
-Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+; 中文语言包是非官方翻译, 官方安装包里不自带 (GitHub runner 上就缺这个文件),
+; 因此随仓库带一份 installer\ChineseSimplified.isl; 万一缺失则回退英文, 不中断编译
+#if FileExists(SourcePath + "ChineseSimplified.isl")
+Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
+#else
+Name: "english"; MessagesFile: "compiler:Default.isl"
+#endif
 
 [Tasks]
 Name: "autorun"; Description: "开机自动启动"; GroupDescription: "附加任务:"
