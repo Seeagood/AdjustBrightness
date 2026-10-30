@@ -11,6 +11,7 @@
 - **快捷档位**：默认 0、5、10…50，点击直接跳到对应亮度
 - **自定义档位**：3 列 × 11 个输入框，保存后自动升序排序并去重；点弹框外部即关闭（只关弹框，主面板保留）
 - **开机自启**：写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`（应用内可随时开关）
+- **与系统亮度百分百同步**：改亮度时同时写入当前电源方案的「显示器亮度」，睡眠唤醒、重启、插拔电源都不会被系统改回旧值
 - **单实例运行**、失焦自动收进托盘、外部改亮度自动回读同步
 
 ## 系统要求
@@ -79,7 +80,7 @@ cl /nologo /utf-8 /MT /O2 /GL /DNDEBUG /EHs-c- /GR- /W3 ^
    src\main.cpp src\mainwnd.cpp src\presetdlg.cpp src\brightness.cpp src\config.cpp ^
    build\app.res ^
    /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS /MANIFEST:NO ^
-   user32.lib gdi32.lib ole32.lib oleaut32.lib wbemuuid.lib shell32.lib advapi32.lib imm32.lib
+   user32.lib gdi32.lib ole32.lib oleaut32.lib wbemuuid.lib powrprof.lib shell32.lib advapi32.lib imm32.lib
 ```
 
 ## 打包安装程序
@@ -109,7 +110,22 @@ lastBrightness=30      ; 退出时记住的亮度
 list=0,5,10,15,20,25,30,35,40,45,50   ; 快捷档位, 升序去重
 ```
 
-窗口位置**不做持久化**：每次启动都重新贴到屏幕右下角；只有本次运行内手动拖动的位置会被记住。唯一的注册表写入是开机自启项（`HKCU\...\Run`）。
+窗口位置**不做持久化**：每次启动都重新贴到屏幕右下角；只有本次运行内手动拖动的位置会被记住。
+
+注册表写入只有两处：
+
+1. 开机自启项 `HKCU\...\Run`
+2. 当前**用户级电源方案**里的「显示器亮度」值（`SUB_VIDEO` / `aded5e82-…`，交流、直流各一份）。这是 Windows 自己保存“当前屏幕亮度”的地方，写它才能让系统与面板保持同一个值；不需要管理员权限，也不改动电源方案的其它设置。
+
+## 更新日志
+
+**v1.0.1**
+
+- 修复：睡眠唤醒后亮度被系统改回旧值（例如 50%）。根因是 `WmiSetBrightness` / `SetMonitorBrightness` 只改面板，不改 Windows 电源方案里的「显示器亮度」，唤醒/重启/插拔电源时系统会按旧值重新下发。
+- 现在每次提交亮度（档位、菜单、拖动松手、启动恢复）都会同步写入当前电源方案的亮度值，界面、面板、系统三方一致；唤醒后再补写一次并复查，作为兜底。
+- 安装包版本号同步为 1.0.1。
+
+**v1.0.0** — 首个发布版本。
 
 ## 说明
 

@@ -6,9 +6,11 @@
 #include <highlevelmonitorconfigurationapi.h>
 #include <wbemidl.h>
 #include <oleauto.h>
+#include <powrprof.h>
 
 #pragma comment(lib, "dxva2.lib")
 #pragma comment(lib, "wbemuuid.lib")
+#pragma comment(lib, "powrprof.lib")
 
 static PHYSICAL_MONITOR g_pm = {};
 static bool g_usePm = false;
@@ -109,6 +111,36 @@ static bool InitWmi() {
 int BrightRawToLogical(int raw) {
     if (raw < 0) return -1;
     return raw <= 3 ? 0 : raw;
+}
+
+// ---- 与 Windows 自身亮度状态同步 ----
+// Windows 把"当前屏幕亮度"存在当前电源方案里 (显示子组 SUB_VIDEO, 设置"显示器亮度",
+// 交流/直流各一份)。WmiSetBrightness / SetMonitorBrightness 只改面板, 不改这个值,
+// 于是睡眠唤醒、重启、插拔电源时系统会拿旧值重新下发, 把我们的设置覆盖掉。
+// 这里把同一个值写进当前方案 (用户级电源方案, 不需要管理员), 双方就百分百一致。
+static const GUID SUB_VIDEO = { 0x7516b95f, 0xf776, 0x4464,
+                                { 0x8c, 0x53, 0x06, 0x16, 0x7f, 0x40, 0xcc, 0x99 } };
+static const GUID SET_BRIGHT  = { 0xaded5e82, 0xb909, 0x4619,
+                                  { 0x99, 0x49, 0xf5, 0xd7, 0x1d, 0xac, 0x0b, 0xcb } };
+static const GUID SET_DIMMED  = { 0xf1fbfde2, 0xa960, 0x4165,
+                                  { 0x9f, 0x88, 0x50, 0x66, 0x79, 0x11, 0xce, 0x96 } };
+
+bool BrightSyncSystem(int logicalValue) {
+    int v = (logicalValue <= 0) ? g.hwFloor : logicalValue;
+    if (v < 0) v = 0; if (v > 100) v = 100;
+
+    GUID* scheme = nullptr;
+    if (PowerGetActiveScheme(nullptr, &scheme) != ERROR_SUCCESS || !scheme) return false;
+
+    bool ok = true;
+    ok &= PowerWriteACValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_BRIGHT, (DWORD)v) == ERROR_SUCCESS;
+    ok &= PowerWriteDCValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_BRIGHT, (DWORD)v) == ERROR_SUCCESS;
+    ok &= PowerWriteACValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_DIMMED, (DWORD)v) == ERROR_SUCCESS;
+    ok &= PowerWriteDCValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_DIMMED, (DWORD)v) == ERROR_SUCCESS;
+    // 让系统立刻采纳新值 (等价于 powercfg /setactive 当前方案)
+    ok &= PowerSetActiveScheme(nullptr, scheme) == ERROR_SUCCESS;
+    LocalFree(scheme);
+    return ok;
 }
 
 bool BrightInit() {

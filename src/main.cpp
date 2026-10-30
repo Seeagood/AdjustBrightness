@@ -204,6 +204,7 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
     if (g.supported) {
         // 恢复上次亮度 (0% -> 实际下发 hwFloor)
         BrightWrite(g.curValue);
+        BrightSyncSystem(g.curValue);   // 启动时也把电源方案里的亮度对齐 (重启后系统自恢复也正确)
         g.lastWritten = BrightRawToLogical(g.curValue == 0 ? g.hwFloor : g.curValue);
         g.lastWriteTick = GetTickCount();
         int raw = BrightRead();

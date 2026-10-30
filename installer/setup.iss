@@ -3,7 +3,7 @@
 ; 产物: installer\Output\AdjustBrightnessSetup.exe
 
 #define AppName      "AdjustBrightness"
-#define AppVersion   "1.0.0"
+#define AppVersion   "1.0.1"
 #define AppPublisher "AdjustBrightness"
 #define AppExe       "AdjustBrightness.exe"
 

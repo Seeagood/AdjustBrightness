@@ -264,15 +264,24 @@ void MainWndApplyValue(int v, bool write) {
     g.curValue = v; g.sliderVal = v; g.chaseVal = (double)v;
     if (write) {
         DoWrite(v);
+        BrightSyncSystem(v);   // 同时更新系统自己的亮度状态, 保证与面板一致
         ConfigSaveState();
     }
     TrayUpdateTip();
     if (g.hwnd) InvalidateRect(g.hwnd, nullptr, FALSE);
 }
 
+// ---- 唤醒后写回自建值 ----
+// Windows 睡眠唤醒时会按电源计划里的"显示器亮度"(本机固定 50%)重新下发一次,
+// 直接覆盖掉我们在 WMI 层设定的值。这段时间内不能回读同步 (那会把被覆盖的值
+// 当成"用户改动"采纳), 而是等显示器就绪后把我们的值写回, 并复查一次。
+static bool s_resumeGuard = false;   // 唤醒窗口内: 暂停回读同步
+static int  s_resumeRetry = 0;       // 剩余写回次数
+
 // 回读同步 (无回声写入)
 void MainWndRefreshPoll() {
     if (!g.supported) return;
+    if (s_resumeGuard) return;
     int raw = BrightRead();
     if (raw < 0) return;
     int v = BrightRawToLogical(raw);
@@ -420,6 +429,7 @@ static void EndDrag(HWND hwnd) {
     KillTimer(hwnd, IDT_CHASE);
     g.curValue = g.sliderVal;
     DoWrite(g.sliderVal);
+    BrightSyncSystem(g.sliderVal);   // 拖动结束: 系统亮度状态与面板一并落定
     ConfigSaveState();
     TrayUpdateTip();
     InvalidateRect(hwnd, nullptr, FALSE);
@@ -506,6 +516,18 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_TIMER:
         if (wp == IDT_POLL) { MainWndRefreshPoll(); return 0; }
         if (wp == IDT_CHASE) { if (g.dragging) ChaseTick(); return 0; }
+        if (wp == IDT_RESUME) {
+            KillTimer(hwnd, IDT_RESUME);
+            DoWrite(g.curValue);                       // 写回用户设定的值
+            BrightSyncSystem(g.curValue);              // 系统状态也对齐, 免得下次唤醒再被覆盖
+            if (--s_resumeRetry > 0) {
+                SetTimer(hwnd, IDT_RESUME, 2500, nullptr);   // 显示器/DDC 可能还没完全就绪, 再复查
+            } else {
+                s_resumeGuard = false;
+                MainWndRefreshPoll();                  // 写回后对一次账
+            }
+            return 0;
+        }
         if (wp == IDT_HIDE) {
             KillTimer(hwnd, IDT_HIDE);
             if (IsWindowVisible(hwnd) && GetForegroundWindow() != hwnd && !g.dlg) {
@@ -554,7 +576,12 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_POWERBROADCAST:
         if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
-            if (g.supported) { g.lastWritten = -1; MainWndRefreshPoll(); }
+            if (g.supported) {
+                // 系统刚按电源计划值覆盖了亮度: 先停止回读同步, 稍后把我们的值写回
+                s_resumeGuard = true;
+                s_resumeRetry = 2;
+                SetTimer(hwnd, IDT_RESUME, 1500, nullptr);
+            }
         }
         return TRUE;
 

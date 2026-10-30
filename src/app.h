@@ -23,6 +23,7 @@
 #define IDT_HIDE   3   // 失焦延迟收起 150ms
 #define IDT_HINT   4   // 托盘图标是否落进 ^ 溢出区的检查 (一次性)
 #define IDT_OUTCLICK 5 // 弹框因点外部而关闭后: 轮询"面板外又一次左键按下" (40ms)
+#define IDT_RESUME  6  // 睡眠唤醒后写回亮度 (系统会按电源计划值覆盖掉我们设定的值)
 
 // 托盘菜单项 ID (owner-draw 数据)
 #define MI_SEP_DATA  (-1)
@@ -87,6 +88,7 @@ void MainWndLayout();               // 主面板热区重建
 bool BrightInit();                  // 初始化 WMI; 返回接口是否可用
 int  BrightRead();                  // 回读原始亮度; 失败返回 -1
 bool BrightWrite(int logicalValue); // 下发逻辑值 (0 -> hwFloor)
+bool BrightSyncSystem(int logicalValue); // 同步到当前电源方案的亮度 (唤醒/重启/插拔电源不被覆盖)
 int  BrightRawToLogical(int raw);   // <=3 显示为 0
 
 // ---- config.cpp ----
