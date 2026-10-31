@@ -30,7 +30,7 @@ rc.exe /nologo /utf-8 /fo build\app.res res\app.rc || exit /b 1
 echo [2/2] Compile and link (MSVC %VCV%, SDK %SDKV%)...
 cl.exe /nologo /utf-8 /MT /O2 /GL /DNDEBUG /D_HAS_EXCEPTIONS=0 /GR- /EHs-c- /W3 /WX- ^
     /Fobuild\ /Febuild\AdjustBrightness.exe ^
-    src\main.cpp src\mainwnd.cpp src\presetdlg.cpp src\brightness.cpp src\config.cpp ^
+    src\main.cpp src\mainwnd.cpp src\presetdlg.cpp src\aboutdlg.cpp src\brightness.cpp src\config.cpp ^
     build\app.res ^
     /link /LTCG /OPT:REF /OPT:ICF /SUBSYSTEM:WINDOWS /MANIFEST:NO ^
     user32.lib gdi32.lib ole32.lib oleaut32.lib wbemuuid.lib shell32.lib advapi32.lib imm32.lib || exit /b 1

@@ -29,13 +29,25 @@ static std::vector<int> NormalizePresets(std::vector<int> v) {
     return out;
 }
 
-static std::vector<int> DefaultPresets() {
+static std::vector<int> DefaultPresets(int maxV) {
+    // 上限 50: 5,10,...,50 ; 上限 100: 10,20,...,100 (10 个, 0 由主面板内置)
+    int step = maxV / 10;
     std::vector<int> v;
-    for (int i = 0; i <= 50; i += 5) v.push_back(i);
+    for (int i = 1; i <= 10; i++) v.push_back(i * step);
     return v;
 }
 
+// 主面板按钮 = 内置 0 + 自定义档位
+void PresetsBuildButtons() {
+    g.presetBtns.clear();
+    g.presetBtns.push_back(0);
+    for (int v : g.presets) g.presetBtns.push_back(v);
+}
+
 void ConfigLoad() {
+    g.presetMax = GetPrivateProfileIntW(L"presets", L"max", 50, IniPath().c_str());
+    if (g.presetMax != 50 && g.presetMax != 100) g.presetMax = 50;
+
     // 档位
     wchar_t buf[512] = {};
     GetPrivateProfileStringW(L"presets", L"list", L"", buf, 512, IniPath().c_str());
@@ -49,11 +61,24 @@ void ConfigLoad() {
                 if (*p == 0) break;
             }
         }
-        g.presets = NormalizePresets(v);
+        std::vector<int> keep;
+        for (int x : v) if (x != 0) keep.push_back(x);   // 0 由主面板内置, 不再存
+        g.presets = NormalizePresets(keep);
     } else {
-        g.presets = DefaultPresets();
+        g.presets = DefaultPresets(g.presetMax);
     }
-    while (g.presets.size() > 11) g.presets.pop_back();
+    // 不超过上限, 最多 10 个
+    std::vector<int> fit;
+    for (int x : g.presets) if (x >= 1 && x <= g.presetMax) fit.push_back(x);
+    while (fit.size() > 10) fit.pop_back();
+    g.presets = NormalizePresets(fit);
+    while (g.presets.size() > 10) g.presets.pop_back();
+    PresetsBuildButtons();
+
+    // 首次运行判定: 有没有存过 lastBrightness (卸载会删掉 config.ini, 重装后即为首次)
+    wchar_t sb[32] = {};
+    GetPrivateProfileStringW(L"state", L"lastBrightness", L"", sb, 32, IniPath().c_str());
+    g.stateLoaded = sb[0] != 0;
 
     g.curValue = GetPrivateProfileIntW(L"state", L"lastBrightness", 50, IniPath().c_str());
     if (g.curValue < 0 || g.curValue > 100) g.curValue = 50;
@@ -72,6 +97,7 @@ void ConfigSavePresets() {
         s += std::to_wstring(g.presets[i]);
     }
     WritePrivateProfileStringW(L"presets", L"list", s.c_str(), IniPath().c_str());
+    WritePrivateProfileStringW(L"presets", L"max", std::to_wstring(g.presetMax).c_str(), IniPath().c_str());
 }
 
 void ConfigSaveState() {

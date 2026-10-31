@@ -109,12 +109,14 @@ static int ThumbX(int v) { return S(TRACK_X) + (int)lround(v * S(TRACK_W) / 100.
 
 // ---- 布局热区 ----
 void MainWndLayout() {
+    // 标题行 (太阳 + 名称): 点击弹出"关于"
+    SetRect(&g.rcTitle, S(12), S(HDR_Y), S(220), S(HDR_Y) + S(HDR_H));
     // 滑块热区覆盖整根竖条 (上下各留 4px, 左右各放宽 12px): 条上任意位置都能按下拖动
     int tcy = S(TRACK_Y) + S(TRACK_H) / 2;
     SetRect(&g.rcSlider, S(TRACK_X) - S(12), tcy - S(THUMB_H) / 2 - S(4),
             S(TRACK_X) + S(TRACK_W) + S(12), tcy + S(THUMB_H) / 2 + S(4));
     g.rcPreset.clear();
-    int n = (int)g.presets.size();
+    int n = (int)g.presetBtns.size();   // 内置 0 + 自定义档位 (最多 11 个)
     int avail = S(356), bw = S(PRESET_W);
     int gap = n > 1 ? (avail - n * bw) / (n - 1) : 0;
     for (int i = 0; i < n; i++) {
@@ -207,13 +209,13 @@ static void Paint(HWND hwnd) {
             DT_CENTER | DT_SINGLELINE);
     }
 
-    // 快捷档位按钮
-    for (size_t i = 0; i < g.presets.size(); i++) {
-        bool sel = en && g.presets[i] == g.curValue;
+    // 快捷档位按钮 (内置 0 + 自定义)
+    for (size_t i = 0; i < g.presetBtns.size(); i++) {
+        bool sel = en && g.presetBtns[i] == g.curValue;
         RR(m, g.rcPreset[i], S(3),
             !en ? g.th.btnBg : sel ? ACCENT : g.th.btnBg,
             !en ? g.th.btnBorder : sel ? ACCENT : g.th.btnBorder);
-        wchar_t t[8]; wsprintfW(t, L"%d", g.presets[i]);
+        wchar_t t[8]; wsprintfW(t, L"%d", g.presetBtns[i]);
         Text(m, t, fBtn, !en ? dimAll : sel ? RGB(0xFF,0xFF,0xFF) : g.th.text,
             g.rcPreset[i], DT_CENTER | DT_VCENTER | DT_SINGLELINE);
     }
@@ -387,9 +389,9 @@ static void MenuDraw(DRAWITEMSTRUCT* di) {
         disabled = true;
     } else if (id >= MI_PRESET_BASE && id < MI_PRESET_BASE + 20) {
         int i = id - MI_PRESET_BASE;
-        if (i < (int)g.presets.size()) {
-            wsprintfW(text, L"%d", g.presets[i]);
-            checked = g.supported && g.presets[i] == g.curValue;
+        if (i < (int)g.presetBtns.size()) {
+            wsprintfW(text, L"%d", g.presetBtns[i]);
+            checked = g.supported && g.presetBtns[i] == g.curValue;
             disabled = !g.supported;
         }
     } else if (id == MI_OPEN) lstrcpyW(text, L"打开主界面");
@@ -447,11 +449,22 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     switch (msg) {
     case WM_PAINT: Paint(hwnd); return 0;
     case WM_ERASEBKGND: return 1;
-    case WM_NCHITTEST: {   // 顶部空白处可拖动窗口
+    case WM_NCHITTEST: {   // 标题行可拖动窗口; 标题文字处留给点击 (弹出"关于")
         POINT p = { GET_X_LPARAM(lp), GET_Y_LPARAM(lp) };   // 屏幕坐标可为负, 必须符号扩展
         ScreenToClient(hwnd, &p);
-        if (p.y < S(HDR_Y) + S(HDR_H)) return HTCAPTION;
+        if (p.y < S(HDR_Y) + S(HDR_H)) {
+            if (p.x >= g.rcTitle.left && p.x < g.rcTitle.right) return HTCLIENT;
+            return HTCAPTION;
+        }
         return HTCLIENT;
+    }
+
+    case WM_SETCURSOR: {
+        if (LOWORD(lp) == HTCLIENT) {
+            POINT p; GetCursorPos(&p); ScreenToClient(hwnd, &p);
+            if (Pt(g.rcTitle, p)) { SetCursor(LoadCursor(nullptr, IDC_HAND)); return TRUE; }
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
     }
 
     case WM_LBUTTONDOWN: {
@@ -460,6 +473,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             DestroyWindow(g.dlg);
             return 0;
         }
+        if (Pt(g.rcTitle, p)) { AboutDlgOpen(); return 0; }
         if (g.supported && Pt(g.rcSlider, p)) {
             g.dragging = true;
             SetCapture(hwnd);
@@ -471,7 +485,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         }
         if (g.supported) {
             for (size_t i = 0; i < g.rcPreset.size(); i++)
-                if (Pt(g.rcPreset[i], p)) { MainWndApplyValue(g.presets[i], true); return 0; }
+                if (Pt(g.rcPreset[i], p)) { MainWndApplyValue(g.presetBtns[i], true); return 0; }
         }
         if (Pt(g.rcCustom, p)) { PresetDlgOpen(); return 0; }
         if (Pt(g.rcSwitch, p)) {
@@ -639,7 +653,7 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         int id = LOWORD(wp);
         if (id >= MI_PRESET_BASE && id < MI_PRESET_BASE + 20) {
             int i = id - MI_PRESET_BASE;
-            if (i < (int)g.presets.size()) MainWndApplyValue(g.presets[i], true);
+            if (i < (int)g.presetBtns.size()) MainWndApplyValue(g.presetBtns[i], true);
         } else if (id == MI_OPEN) {
             MainWndShow(true);
         } else if (id == MI_AUTORUN) {

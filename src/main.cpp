@@ -159,7 +159,7 @@ void TrayShowMenu(POINT pt) {
     };
     add(MI_INFO);
     add(MI_SEP_DATA);
-    for (size_t i = 0; i < g.presets.size(); i++) add(MI_PRESET_BASE + (int)i);
+    for (size_t i = 0; i < g.presetBtns.size(); i++) add(MI_PRESET_BASE + (int)i);
     add(MI_SEP_DATA);
     add(MI_OPEN);
     add(MI_AUTORUN);
@@ -202,8 +202,20 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
 
     g.supported = BrightInit();
     if (g.supported) {
-        // 恢复上次亮度 (0% -> 实际下发 hwFloor)
-        BrightWrite(g.curValue);
+        if (g.stateLoaded) {
+            // 恢复上次亮度 (0% -> 实际下发 hwFloor)
+            BrightWrite(g.curValue);
+        } else {
+            // 首次运行 (含卸载重装后 config.ini 已不存在): 不把屏幕改成默认 50%,
+            // 而是沿用屏幕当前亮度, 并把它记为"上次亮度"
+            int v = BrightRawToLogical(BrightRead());
+            if (v >= 0) {
+                g.curValue = v; g.sliderVal = v; g.chaseVal = (double)v;
+            } else {
+                BrightWrite(g.curValue);   // 读不到当前亮度时才退回默认值
+            }
+            ConfigSaveState();
+        }
         BrightSyncSystem(g.curValue);   // 启动时也把电源方案里的亮度对齐 (重启后系统自恢复也正确)
         g.lastWritten = BrightRawToLogical(g.curValue == 0 ? g.hwFloor : g.curValue);
         g.lastWriteTick = GetTickCount();

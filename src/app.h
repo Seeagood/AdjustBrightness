@@ -14,6 +14,9 @@
 #define APP_NAME    L"AdjustBrightness"
 #define APP_CLASS   L"AdjustBrightnessMainWnd"
 #define DLG_CLASS   L"AdjustBrightnessPresetDlg"
+#define ABOUT_CLASS L"AdjustBrightnessAboutDlg"
+#define APP_VERSION L"1.0.2"
+#define APP_URL     L"https://github.com/Seeagood/AdjustBrightness"
 
 #define WM_APP_TRAY   (WM_APP + 1)
 #define WM_APP_SHOW   (WM_APP + 2)
@@ -66,13 +69,16 @@ struct AppState {
     int    lastSentValue = -1;
 
     // 配置
-    std::vector<int> presets;      // 快捷档位, 升序去重
+    std::vector<int> presets;      // 自定义快捷档位 (不含 0, 升序去重, 最多 10 个)
+    std::vector<int> presetBtns;   // 主面板按钮值 = 内置 0 + presets (最多 11 个)
+    int   presetMax = 50;          // 自定义档位上限: 50 或 100
     POINT winPos = {0, 0};
     bool  hasWinPos = false;
     bool  autorun = true;
+    bool  stateLoaded = false;     // config.ini 里是否已存有 lastBrightness (首次运行=没有)
 
     // 布局热区 (像素, 已按 DPI 缩放)
-    RECT rcSlider = {}, rcCustom = {}, rcSwitch = {};
+    RECT rcSlider = {}, rcCustom = {}, rcSwitch = {}, rcTitle = {};
     std::vector<RECT> rcPreset;
 };
 extern AppState g;
@@ -94,6 +100,7 @@ int  BrightRawToLogical(int raw);   // <=3 显示为 0
 // ---- config.cpp ----
 void ConfigLoad();
 void ConfigSavePresets();
+void PresetsBuildButtons();         // 由 presets 生成主面板按钮值 (内置 0 + 自定义)
 void ConfigSaveState();
 std::wstring ExeDir();
 
@@ -112,6 +119,7 @@ LRESULT CALLBACK MainWndProc(HWND, UINT, WPARAM, LPARAM);
 
 // ---- presetdlg.cpp ----
 void PresetDlgOpen();               // 模态打开自定义对话框
+void AboutDlgOpen();                // 点标题打开"关于"
 
 // ---- tray / menu (main.cpp) ----
 void TrayAdd();

@@ -1,18 +1,20 @@
-// presetdlg.cpp - 自定义快捷档位对话框 320x260 (3列11输入框, 点外部自动关闭)
+// presetdlg.cpp - 自定义快捷档位对话框 320x168 (10 个输入框, 5 列 2 行, 上限可选 50/100)
 #include "app.h"
-#include <stdio.h>
+#include <stdlib.h>
 
-static const int DW = 320, DH = 260;
-static const wchar_t* DEF_NOTE = L"保存后自动升序排序，重复值合并去重。输入范围 0–100 整数。";
+static const int DW = 320, DH = 168;
 
-static HWND   s_edits[11];
+static HWND   s_edits[10];
 static HWND   s_note, s_ok;
 static HFONT  s_fText, s_fTitle;
-static bool   s_bad[11];
-static bool   s_dlgSeenFg = false;   // 弹框是否曾拿到前台 (之后失焦即视为点了外部)
+static bool   s_bad[10];
+static bool   s_dlgSeenFg = false;       // 弹框是否曾拿到前台 (之后失焦即视为点了外部)
 static bool   s_closingOutside = false;  // 本次是由"点弹框外部"导致的关闭
 
 static int D(int v) { return MulDiv(v, (int)g.dpi, 96); }
+
+// 上限对应的默认序列: 50 -> 5,10,...,50 ; 100 -> 10,20,...,100
+static int DefVal(int i) { return (i + 1) * (g.presetMax / 10); }
 
 // 与主面板一致的圆角按钮 (自绘)
 static void RoundBtn(HDC dc, const RECT& r, int rad, COLORREF fill, COLORREF border) {
@@ -25,30 +27,42 @@ static void RoundBtn(HDC dc, const RECT& r, int rad, COLORREF fill, COLORREF bor
     DeleteObject(b); if (border) DeleteObject(p);
 }
 
-static void DlgLayout(HWND hwnd) {
-    int n = 11;
-    int gx = D(16), gy = D(34) + D(12);
-    int cellH = D(24), gapX = D(12), gapY = D(8);
-    // 内容区 288 宽内均布 3 列
-    int totalW = D(288);
-    int cellW = (totalW - 2 * gapX) / 3;
-    for (int i = 0; i < n; i++) {
-        int col = i % 3, row = i / 3;
-        int x = gx + col * (cellW + gapX);
-        int y = gy + row * (cellH + gapY);
-        // label 由 WM_PAINT 静态画, 输入框宽 52 靠右
-        SetWindowPos(s_edits[i], nullptr, x + cellW - D(52), y, D(52), cellH, SWP_NOZORDER);
+static void FillDefaults(HWND hwnd) {
+    for (int i = 0; i < 10; i++) {
+        wchar_t t[8];
+        wsprintfW(t, L"%d", DefVal(i));
+        SetWindowTextW(s_edits[i], t);
+        s_bad[i] = false;
     }
-    int noteY = gy + 4 * (cellH + gapY) + D(8);
-    SetWindowPos(s_note, nullptr, gx, noteY, D(288), D(32), SWP_NOZORDER);
+    SetWindowTextW(s_note, L"");
+    InvalidateRect(hwnd, nullptr, FALSE);
+}
+
+static void DlgLayout(HWND hwnd) {
+    int gx = D(19), top = D(46);
+    int gapX = D(8), gapY = D(8), cellH = D(24);
+    int labelW = D(16), editW = D(36);     // label 只放序号 1-10, 尽量窄
+    int cellW = labelW + editW;
+    for (int i = 0; i < 10; i++) {
+        int col = i % 5, row = i / 5;
+        int x = gx + col * (cellW + gapX);
+        int y = top + row * (cellH + gapY);
+        SetWindowPos(s_edits[i], nullptr, x + labelW, y, editW, cellH, SWP_NOZORDER);
+    }
+
+    int noteY = top + 2 * (cellH + gapY) + D(6);
+    SetWindowPos(s_note, nullptr, gx, noteY, D(DW) - gx * 2, D(18), SWP_NOZORDER);
 
     int fy = D(DH) - D(44);
     int bw = D(76), bh = D(28), by = fy + (D(44) - bh) / 2;
-    HWND bRestore = GetDlgItem(hwnd, 201);
-    HWND bCancel  = GetDlgItem(hwnd, 202);
-    SetWindowPos(bRestore, nullptr, D(14), by, bw, bh, SWP_NOZORDER);
-    SetWindowPos(bCancel,  nullptr, D(DW) - D(14) - bw * 2 - D(8), by, bw, bh, SWP_NOZORDER);
-    SetWindowPos(s_ok,     nullptr, D(DW) - D(14) - bw, by, bw, bh, SWP_NOZORDER);
+    SetWindowPos(GetDlgItem(hwnd, 201), nullptr, D(14), by, bw, bh, SWP_NOZORDER);
+    SetWindowPos(GetDlgItem(hwnd, 202), nullptr, D(DW) - D(14) - bw * 2 - D(8), by, bw, bh, SWP_NOZORDER);
+    SetWindowPos(s_ok, nullptr, D(DW) - D(14) - bw, by, bw, bh, SWP_NOZORDER);
+
+    // 标题栏右侧: 最大值 50 / 100 单选
+    int rbW = D(44), rbH = D(20), rbY = (D(34) - rbH) / 2;
+    SetWindowPos(GetDlgItem(hwnd, 211), nullptr, D(216), rbY, rbW, rbH, SWP_NOZORDER);
+    SetWindowPos(GetDlgItem(hwnd, 212), nullptr, D(216) + rbW, rbY, rbW, rbH, SWP_NOZORDER);
 }
 
 static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -56,32 +70,34 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_CREATE: {
         s_fText  = MakeFont(12, FW_NORMAL);
         s_fTitle = MakeFont(13, FW_SEMIBOLD);
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 10; i++) {
             s_edits[i] = CreateWindowExW(0, L"EDIT", L"",
                 WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER | ES_CENTER,
                 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)(100 + i), g.inst, nullptr);
             SendMessageW(s_edits[i], WM_SETFONT, (WPARAM)s_fText, TRUE);
             SendMessageW(s_edits[i], EM_SETLIMITTEXT, 3, 0);
         }
-        s_note = CreateWindowExW(0, L"STATIC", DEF_NOTE,
+        // 平时为空, 只有输入非法时才显示错误提示
+        s_note = CreateWindowExW(0, L"STATIC", L"",
             WS_CHILD | WS_VISIBLE | SS_LEFT,
             0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)200, g.inst, nullptr);
         SendMessageW(s_note, WM_SETFONT, (WPARAM)s_fText, TRUE);
 
-        HWND bRestore = CreateWindowExW(0, L"BUTTON", L"恢复默认",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)201, g.inst, nullptr);
-        HWND bCancel = CreateWindowExW(0, L"BUTTON", L"取消",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)202, g.inst, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"恢复默认",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)201, g.inst, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"取消",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)202, g.inst, nullptr);
         s_ok = CreateWindowExW(0, L"BUTTON", L"确定",
-            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
-            0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)203, g.inst, nullptr);
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)203, g.inst, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"50",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)211, g.inst, nullptr);
+        CreateWindowExW(0, L"BUTTON", L"100",
+            WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, hwnd, (HMENU)(INT_PTR)212, g.inst, nullptr);
 
-        // 填充当前档位 (不足 11 个用默认值补齐位置)
-        for (int i = 0; i < 11; i++) {
+        // 填充当前档位 (不足 10 个用当前上限的默认值补齐)
+        for (int i = 0; i < 10; i++) {
             wchar_t t[8];
-            int v = i < (int)g.presets.size() ? g.presets[i] : (i * 5 <= 50 ? i * 5 : 50);
+            int v = i < (int)g.presets.size() ? g.presets[i] : DefVal(i);
             wsprintfW(t, L"%d", v);
             SetWindowTextW(s_edits[i], t);
             s_bad[i] = false;
@@ -112,9 +128,12 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         FillRect(dc, &cr, bg);
         DeleteObject(bg);
 
-        // 标题栏
+        // 标题栏 (右侧留给"最大值: 50 / 100")
         Txt(dc, L"自定义快捷档位", s_fTitle, g.th.text,
-            { D(14), 0, D(200), D(34) }, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            { D(14), 0, D(150), D(34) }, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+        Txt(dc, L"最大值", s_fText, g.th.dim,
+            { D(150), 0, D(212), D(34) }, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+
         HPEN p = CreatePen(PS_SOLID, 1, g.th.sep);
         HPEN op = (HPEN)SelectObject(dc, p);
         MoveToEx(dc, 0, D(34), nullptr); LineTo(dc, cr.right, D(34));
@@ -122,20 +141,20 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         MoveToEx(dc, 0, fy, nullptr); LineTo(dc, cr.right, fy);
         SelectObject(dc, op); DeleteObject(p);
 
-        // 行标签 1..11
+        // 行标签 1..10 (窄, 紧贴输入框)
         HFONT of = (HFONT)SelectObject(dc, s_fText);
         SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, g.th.dim);
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 10; i++) {
             RECT er; GetWindowRect(s_edits[i], &er);
             MapWindowPoints(nullptr, hwnd, (POINT*)&er, 2);
-            RECT lr = { er.left - D(19), er.top, er.left - D(5), er.bottom };
+            RECT lr = { er.left - D(15), er.top, er.left - D(4), er.bottom };
             wchar_t t[8]; wsprintfW(t, L"%d", i + 1);
             DrawTextW(dc, t, -1, &lr, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
         }
         SelectObject(dc, of);
         // 非法输入红框
-        for (int i = 0; i < 11; i++) {
+        for (int i = 0; i < 10; i++) {
             if (!s_bad[i]) continue;
             RECT er; GetWindowRect(s_edits[i], &er);
             MapWindowPoints(nullptr, hwnd, (POINT*)&er, 2);
@@ -152,7 +171,7 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         static HBRUSH s_br = nullptr;
         static COLORREF s_brc = 0;
         HDC dc = (HDC)wp;
-        SetTextColor(dc, (HWND)lp == s_note ? g.th.dim : g.th.text);
+        SetTextColor(dc, (HWND)lp == s_note ? RGB(0xE8, 0x11, 0x23) : g.th.text);
         SetBkColor(dc, g.th.bg);
         if (!s_br || s_brc != g.th.bg) {
             if (s_br) DeleteObject(s_br);
@@ -162,16 +181,40 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return (LRESULT)s_br;
     }
 
-    case WM_DRAWITEM: {  // 三个按钮统一自绘: 中性按钮 = 主面板同款; 确定 = 主按钮 (#0078D4)
+    case WM_DRAWITEM: {
         DRAWITEMSTRUCT* di = (DRAWITEMSTRUCT*)lp;
         int id = (int)di->CtlID;
-        if (id != 201 && id != 202 && id != 203) break;
-        bool primary = (id == 203);
-        bool pressed = (di->itemState & ODS_SELECTED) != 0;
         RECT r = di->rcItem;
+        bool pressed = (di->itemState & ODS_SELECTED) != 0;
         HBRUSH bg = CreateSolidBrush(g.th.bg);   // owner-draw 不自动擦背景
         FillRect(di->hDC, &r, bg);
         DeleteObject(bg);
+
+        if (id == 211 || id == 212) {   // 最大值单选
+            bool on = g.presetMax == (id == 211 ? 50 : 100);
+            int cx = r.left + D(7), cy = (r.top + r.bottom) / 2, rr = D(6);
+            HPEN p = CreatePen(PS_SOLID, 1, on ? ACCENT : g.th.btnBorder);
+            HBRUSH b = CreateSolidBrush(g.th.bg);
+            HPEN op = (HPEN)SelectObject(di->hDC, p);
+            HBRUSH ob = (HBRUSH)SelectObject(di->hDC, b);
+            Ellipse(di->hDC, cx - rr, cy - rr, cx + rr, cy + rr);
+            SelectObject(di->hDC, op); SelectObject(di->hDC, ob);
+            DeleteObject(p); DeleteObject(b);
+            if (on) {
+                HBRUSH dot = CreateSolidBrush(ACCENT);
+                HBRUSH od = (HBRUSH)SelectObject(di->hDC, dot);
+                Ellipse(di->hDC, cx - rr + D(2), cy - rr + D(2), cx + rr - D(2), cy + rr - D(2));
+                SelectObject(di->hDC, od);
+                DeleteObject(dot);
+            }
+            r.left += D(18);
+            Txt(di->hDC, id == 211 ? L"50" : L"100", s_fText, g.th.text, r,
+                DT_LEFT | DT_VCENTER | DT_SINGLELINE);
+            return TRUE;
+        }
+        if (id != 201 && id != 202 && id != 203) break;
+
+        bool primary = (id == 203);
         COLORREF fill, bd;
         if (primary) {
             fill = pressed ? RGB(0, 0x5F, 0xA8) : ACCENT;
@@ -189,30 +232,31 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_COMMAND: {
         int id = LOWORD(wp);
+        if (id == 211 || id == 212) {   // 切换上限: 重新填入该上限的默认序列
+            g.presetMax = (id == 211 ? 50 : 100);
+            FillDefaults(hwnd);
+            return 0;
+        }
         if (id == 201) {  // 恢复默认
-            for (int i = 0; i < 11; i++) {
-                wchar_t t[8]; wsprintfW(t, L"%d", i * 5);
-                SetWindowTextW(s_edits[i], t);
-                s_bad[i] = false;
-            }
-            SetWindowTextW(s_note, DEF_NOTE);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            FillDefaults(hwnd);
             return 0;
         }
         if (id == 202) { DestroyWindow(hwnd); return 0; }   // 取消
         if (id == 203) {                                     // 确定
             std::vector<int> v;
             bool bad = false;
-            for (int i = 0; i < 11; i++) {
+            for (int i = 0; i < 10; i++) {
                 wchar_t t[8] = {};
                 GetWindowTextW(s_edits[i], t, 8);
                 if (!t[0]) { s_bad[i] = true; bad = true; continue; }
                 int x = _wtoi(t);
-                s_bad[i] = x < 0 || x > 100;
+                s_bad[i] = x < 1 || x > g.presetMax;
                 if (s_bad[i]) bad = true; else v.push_back(x);
             }
             if (bad) {
-                SetWindowTextW(s_note, L"请修正红色输入框：仅接受 0–100 整数。");
+                wchar_t msg[64];
+                wsprintfW(msg, L"请修正红色输入框：仅接受 1–%d 整数。", g.presetMax);
+                SetWindowTextW(s_note, msg);
                 InvalidateRect(hwnd, nullptr, FALSE);
                 return 0;
             }
@@ -229,7 +273,8 @@ static LRESULT CALLBACK DlgProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             if (!out.empty()) {
                 g.presets = out;
                 ConfigSavePresets();
-                MainWndLayout();   // 主面板热区重建
+                PresetsBuildButtons();   // 主面板 = 内置 0 + 自定义
+                MainWndLayout();
                 InvalidateRect(g.hwnd, nullptr, FALSE);
             }
             DestroyWindow(hwnd);
