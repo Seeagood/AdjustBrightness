@@ -75,11 +75,12 @@ void ConfigLoad() {
     while (g.presets.size() > 10) g.presets.pop_back();
     PresetsBuildButtons();
 
-    // 首次运行判定: 有没有存过 lastBrightness (卸载会删掉 config.ini, 重装后即为首次)
-    wchar_t sb[32] = {};
-    GetPrivateProfileStringW(L"state", L"lastBrightness", L"", sb, 32, IniPath().c_str());
-    g.stateLoaded = sb[0] != 0;
+    // 硬件最低值 (上次实测得到): 让"最低档"始终映射为 0%
+    g.hwFloor = GetPrivateProfileIntW(L"state", L"hwFloor", 3, IniPath().c_str());
+    if (g.hwFloor < 0 || g.hwFloor > 50) g.hwFloor = 3;
+    g.hwFloorNoted = g.hwFloor > 3;
 
+    // 记录值只作为兜底 (读不到显示器亮度时才会用), 启动时以显示器真实值为准
     g.curValue = GetPrivateProfileIntW(L"state", L"lastBrightness", 50, IniPath().c_str());
     if (g.curValue < 0 || g.curValue > 100) g.curValue = 50;
     g.sliderVal = g.curValue;
@@ -103,6 +104,8 @@ void ConfigSavePresets() {
 void ConfigSaveState() {
     WritePrivateProfileStringW(L"state", L"lastBrightness",
         std::to_wstring(g.curValue).c_str(), IniPath().c_str());
+    WritePrivateProfileStringW(L"state", L"hwFloor",
+        std::to_wstring(g.hwFloor).c_str(), IniPath().c_str());
 }
 
 // ---- 开机自启: HKCU\...\Run ----

@@ -254,10 +254,19 @@ static void Paint(HWND hwnd) {
 // ---- 亮度下发 (记录回声抑制状态; 期望值 = 回读映射值, 0% -> hwFloor) ----
 static void DoWrite(int logical) {
     if (!g.supported) return;
-    if (BrightWrite(logical)) {
-        g.lastWritten = BrightRawToLogical(logical == 0 ? g.hwFloor : logical);
-        g.lastWriteTick = GetTickCount();
+    if (!BrightWrite(logical)) return;
+    // 下发 0% 后读一次: 若硬件把值夹在更高处, 那个值才是真正的最低值,
+    // 记下来 (并落盘) 后, 之后每次读数都会把它映射回 0%
+    if (logical == 0) {
+        int raw = BrightRead();
+        if (raw > g.hwFloor) {
+            g.hwFloor = raw;
+            g.hwFloorNoted = raw > 3;
+            ConfigSaveState();
+        }
     }
+    g.lastWritten = BrightRawToLogical(logical == 0 ? g.hwFloor : logical);
+    g.lastWriteTick = GetTickCount();
 }
 
 // 外部入口: 立即设置亮度 (按钮/菜单/预设)
@@ -292,7 +301,12 @@ void MainWndRefreshPoll() {
         else if (GetTickCount() - g.lastWriteTick < 1200) return; // 抑制回声
     }
     if (v != g.curValue && !g.dragging) {
+        // 采纳外部改动 (移动中心 / 设置 / 显示器按键 / 其它工具):
+        // 立刻落盘并同步电源方案, 这样退出重启、睡眠唤醒都不会回退到旧值
         g.curValue = v; g.sliderVal = v; g.chaseVal = (double)v;
+        g.lastWritten = -1;
+        BrightSyncSystem(v);
+        ConfigSaveState();
         TrayUpdateTip();
         InvalidateRect(g.hwnd, nullptr, FALSE);
     }
@@ -665,7 +679,10 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     case WM_CLOSE: HideToTray(); return 0;   // 关闭 = 收进托盘
-    case WM_DESTROY: PostQuitMessage(0); return 0;
+    case WM_DESTROY:
+        ConfigSaveState();   // 退出前落盘 (含外部改动后的值)
+        PostQuitMessage(0);
+        return 0;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
 }

@@ -15,7 +15,7 @@
 #define APP_CLASS   L"AdjustBrightnessMainWnd"
 #define DLG_CLASS   L"AdjustBrightnessPresetDlg"
 #define ABOUT_CLASS L"AdjustBrightnessAboutDlg"
-#define APP_VERSION L"1.0.2"
+#define APP_VERSION L"1.0.3"
 #define APP_URL     L"https://github.com/Seeagood/AdjustBrightness"
 
 #define WM_APP_TRAY   (WM_APP + 1)
@@ -75,7 +75,6 @@ struct AppState {
     POINT winPos = {0, 0};
     bool  hasWinPos = false;
     bool  autorun = true;
-    bool  stateLoaded = false;     // config.ini 里是否已存有 lastBrightness (首次运行=没有)
 
     // 布局热区 (像素, 已按 DPI 缩放)
     RECT rcSlider = {}, rcCustom = {}, rcSwitch = {}, rcTitle = {};

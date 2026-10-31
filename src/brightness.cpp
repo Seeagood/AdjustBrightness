@@ -110,7 +110,8 @@ static bool InitWmi() {
 
 int BrightRawToLogical(int raw) {
     if (raw < 0) return -1;
-    return raw <= 3 ? 0 : raw;
+    // 硬件最低值即代表逻辑 0% (例如硬件最小 5 -> 界面显示 0, 而不是 5)
+    return raw <= g.hwFloor ? 0 : raw;
 }
 
 // ---- 与 Windows 自身亮度状态同步 ----
@@ -131,6 +132,15 @@ bool BrightSyncSystem(int logicalValue) {
 
     GUID* scheme = nullptr;
     if (PowerGetActiveScheme(nullptr, &scheme) != ERROR_SUCCESS || !scheme) return false;
+
+    // 方案里已经是同一个值: 什么都不做 (避免每次回读同步都重设一次电源方案)
+    DWORD ac = 0, dc = 0;
+    if (PowerReadACValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_BRIGHT, &ac) == ERROR_SUCCESS &&
+        PowerReadDCValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_BRIGHT, &dc) == ERROR_SUCCESS &&
+        (int)ac == v && (int)dc == v) {
+        LocalFree(scheme);
+        return true;
+    }
 
     bool ok = true;
     ok &= PowerWriteACValueIndex(nullptr, scheme, &SUB_VIDEO, &SET_BRIGHT, (DWORD)v) == ERROR_SUCCESS;

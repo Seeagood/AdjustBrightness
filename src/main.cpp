@@ -202,28 +202,27 @@ int WINAPI wWinMain(HINSTANCE hInst, HINSTANCE, LPWSTR, int) {
 
     g.supported = BrightInit();
     if (g.supported) {
-        if (g.stateLoaded) {
-            // 恢复上次亮度 (0% -> 实际下发 hwFloor)
-            BrightWrite(g.curValue);
-        } else {
-            // 首次运行 (含卸载重装后 config.ini 已不存在): 不把屏幕改成默认 50%,
-            // 而是沿用屏幕当前亮度, 并把它记为"上次亮度"
-            int v = BrightRawToLogical(BrightRead());
-            if (v >= 0) {
-                g.curValue = v; g.sliderVal = v; g.chaseVal = (double)v;
-            } else {
-                BrightWrite(g.curValue);   // 读不到当前亮度时才退回默认值
-            }
-            ConfigSaveState();
-        }
-        BrightSyncSystem(g.curValue);   // 启动时也把电源方案里的亮度对齐 (重启后系统自恢复也正确)
-        g.lastWritten = BrightRawToLogical(g.curValue == 0 ? g.hwFloor : g.curValue);
-        g.lastWriteTick = GetTickCount();
+        // 亮度唯一可信来源 = 显示器当前的真实亮度:
+        // 用户在移动中心 / 显示器按键改过、或软件没运行时系统自己变过, 都沿用真实值,
+        // 绝不能用历史记录把屏幕改回去 (这是"退出再启动又变回旧值"的根因)。
         int raw = BrightRead();
-        if (raw >= 0) {
-            int v = BrightRawToLogical(raw);
-            if (v >= 0) { g.curValue = v; g.sliderVal = v; g.chaseVal = (double)v; }
+        int v = BrightRawToLogical(raw);
+        if (v >= 0) {
+            g.curValue = v;
+            g.lastWritten = -1;              // 启动时没有下发, 不需要回声抑制
+        } else {
+            // 读不到 (DDC 未就绪等) 才退回上次记录值并下发
+            BrightWrite(g.curValue);
+            g.lastWritten = BrightRawToLogical(g.curValue == 0 ? g.hwFloor : g.curValue);
+            g.lastWriteTick = GetTickCount();
+            raw = BrightRead();
+            v = BrightRawToLogical(raw);
+            if (v >= 0) g.curValue = v;
         }
+        g.sliderVal = g.curValue;
+        g.chaseVal = (double)g.curValue;
+        BrightSyncSystem(g.curValue);   // 电源方案对齐到同一值 (唤醒/重启后系统不会改回旧值)
+        ConfigSaveState();              // 记录这次的真实值, 只作下次读不到时的兜底
     }
 
     if (!MainWndCreate()) return 1;
