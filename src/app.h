@@ -15,7 +15,7 @@
 #define APP_CLASS   L"AdjustBrightnessMainWnd"
 #define DLG_CLASS   L"AdjustBrightnessPresetDlg"
 #define ABOUT_CLASS L"AdjustBrightnessAboutDlg"
-#define APP_VERSION L"1.0.3"
+#define APP_VERSION L"1.0.4"
 #define APP_URL     L"https://github.com/Seeagood/AdjustBrightness"
 
 #define WM_APP_TRAY   (WM_APP + 1)

@@ -282,17 +282,27 @@ void MainWndApplyValue(int v, bool write) {
     if (g.hwnd) InvalidateRect(g.hwnd, nullptr, FALSE);
 }
 
-// ---- 唤醒后写回自建值 ----
+// ---- 唤醒/息屏后写回自建值 ----
 // Windows 睡眠唤醒时会按电源计划里的"显示器亮度"(本机固定 50%)重新下发一次,
 // 直接覆盖掉我们在 WMI 层设定的值。这段时间内不能回读同步 (那会把被覆盖的值
 // 当成"用户改动"采纳), 而是等显示器就绪后把我们的值写回, 并复查一次。
 static bool s_resumeGuard = false;   // 唤醒窗口内: 暂停回读同步
 static int  s_resumeRetry = 0;       // 剩余写回次数
 
+// ---- 显示器开关状态 (自动息屏 / 屏幕变暗) ----
+// 息屏前系统会先把屏幕"变暗"到电源方案里的"调暗后的显示器亮度"(常见为 5),
+// 息屏和变暗期间读到的都是这个临时值。若把它当成用户改动采纳, 会把电源方案的
+// "显示器亮度"也改写成这个低值, 唤醒后就再也回不到息屏前的亮度。
+// GUID_CONSOLE_DISPLAY_STATE: 0 = 息屏, 1 = 点亮, 2 = 变暗
+static const GUID GUID_DISPLAY_STATE = { 0x6fe69556, 0x704a, 0x47a0,
+                                         { 0x8f, 0x24, 0xc2, 0x8d, 0x93, 0x6f, 0xda, 0x47 } };
+static HPOWERNOTIFY s_displayNotify = nullptr;
+static bool s_displayOn = true;      // 屏幕处于点亮且未变暗
+
 // 回读同步 (无回声写入)
 void MainWndRefreshPoll() {
     if (!g.supported) return;
-    if (s_resumeGuard) return;
+    if (s_resumeGuard || !s_displayOn) return;
     int raw = BrightRead();
     if (raw < 0) return;
     int v = BrightRawToLogical(raw);
@@ -603,9 +613,30 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
 
     case WM_POWERBROADCAST:
+        if (wp == PBT_POWERSETTINGCHANGE) {
+            POWERBROADCAST_SETTING* ps = (POWERBROADCAST_SETTING*)lp;
+            if (ps && ps->DataLength >= sizeof(DWORD) &&
+                IsEqualGUID(ps->PowerSetting, GUID_DISPLAY_STATE)) {
+                DWORD state = *(DWORD*)ps->Data;
+                if (state == 0 || state == 2) {
+                    // 息屏 / 变暗: 读到的都是系统临时压低的亮度, 停止回读同步
+                    s_displayOn = false;
+                } else if (state == 1) {
+                    // 屏幕点亮: 恢复用户设定值, 期间同样暂停回读, 避免把残余低值采纳进来
+                    s_displayOn = true;
+                    if (g.supported) {
+                        s_resumeGuard = true;
+                        s_resumeRetry = 2;
+                        SetTimer(hwnd, IDT_RESUME, 500, nullptr);
+                    }
+                }
+            }
+            return TRUE;
+        }
         if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
             if (g.supported) {
                 // 系统刚按电源计划值覆盖了亮度: 先停止回读同步, 稍后把我们的值写回
+                s_displayOn = true;
                 s_resumeGuard = true;
                 s_resumeRetry = 2;
                 SetTimer(hwnd, IDT_RESUME, 1500, nullptr);
@@ -680,6 +711,10 @@ LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 
     case WM_CLOSE: HideToTray(); return 0;   // 关闭 = 收进托盘
     case WM_DESTROY:
+        if (s_displayNotify) {
+            UnregisterPowerSettingNotification(s_displayNotify);
+            s_displayNotify = nullptr;
+        }
         ConfigSaveState();   // 退出前落盘 (含外部改动后的值)
         PostQuitMessage(0);
         return 0;
@@ -702,5 +737,9 @@ bool MainWndCreate() {
         0, 0, S(LW), S(LH), nullptr, nullptr, g.inst, nullptr);
     if (!g.hwnd) return false;
     MainWndRecreateLayout();
+
+    // 监视显示器开关/变暗状态: 息屏期间的回读值不可信, 不能采纳
+    s_displayNotify = RegisterPowerSettingNotification(
+        g.hwnd, &GUID_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
     return true;
 }

@@ -69,10 +69,20 @@ jobs:
           $tag = "${{ inputs.tag }}"
           if ([string]::IsNullOrWhiteSpace($tag)) { $tag = $env:GITHUB_REF_NAME }
           $files = @('build\AdjustBrightness.exe', 'installer\Output\AdjustBrightnessSetup.exe')
-          gh release view $tag 2>$null
+
+          # 详细更新日志取自 release-notes/<tag>.md; 缺失时退回自动生成的变更日志
+          $notesFile = "release-notes/$tag.md"
+          $hasNotes = Test-Path $notesFile
+          if ($hasNotes) { Write-Host "using notes: $notesFile" }
+          else { Write-Warning "$notesFile not found, falling back to generated notes" }
+
+          gh release view $tag 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
-            # 已存在: 覆盖上传附件
+            # 已存在: 更新说明并覆盖上传附件
+            if ($hasNotes) { gh release edit $tag --notes-file $notesFile }
             gh release upload $tag @files --clobber
+          } elseif ($hasNotes) {
+            gh release create $tag @files --title $tag --notes-file $notesFile
           } else {
             gh release create $tag @files --title $tag --generate-notes
           }
